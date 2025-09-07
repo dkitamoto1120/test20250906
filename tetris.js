@@ -244,6 +244,22 @@ document.addEventListener('keydown', event => {
   }
 });
 
+function bindButton(id, fn) {
+  const btn = document.getElementById(id);
+  if (!btn) return;
+  const handler = e => {
+    e.preventDefault();
+    fn();
+  };
+  btn.addEventListener('click', handler);
+  btn.addEventListener('touchstart', handler);
+}
+
+bindButton('btnLeft', () => playerMove(-1));
+bindButton('btnRight', () => playerMove(1));
+bindButton('btnRotate', () => playerRotate(1));
+bindButton('btnDrop', hardDrop);
+
 playerReset();
 updateScore();
 update();

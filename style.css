@@ -54,3 +54,24 @@ canvas {
   font-size: 1.2rem;
   text-align: center;
 }
+
+.controls {
+  position: fixed;
+  bottom: 1rem;
+  right: 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.controls button {
+  width: 3rem;
+  height: 3rem;
+  font-size: 1.5rem;
+}
+
+@media (min-width: 600px) {
+  .controls {
+    display: none;
+  }
+}
