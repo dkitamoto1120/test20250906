@@ -143,6 +143,7 @@ function init(){
   });
   runTests();
 }
+
 function runTests(){const tests=[{id:'testA',params:{N:50000,rW:0.1021,rC:0.1,base:'fee',round:'down',two:false},exp:{fee:50105,tax:5010,gross:55115,W:5115,total:55115}},{id:'testB',params:{N:50000,rW:0.1021,rC:0.1,base:'gross',round:'down',two:false},exp:{fee:50623,tax:5062,gross:55685,W:5685,total:55685}},{id:'testC',params:{N:50000,rW:0.2042,rC:0.1,base:'fee',round:'down',two:false},exp:{fee:55816,tax:5581,gross:61397,W:11397,total:61397}}];tests.forEach(t=>{const r=solveNetToInvoice(t.params);const ok=r.fee===t.exp.fee&&r.tax===t.exp.tax&&r.gross===t.exp.gross&&r.W===t.exp.W;const el=document.getElementById(t.id);el.textContent=`${t.id} ${ok?'OK':'NG'}`;el.className=ok?'test-pass':'test-fail';});}
 document.addEventListener('DOMContentLoaded',init);
 </script>
