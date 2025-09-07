@@ -114,8 +114,36 @@ function applyParamsFromQuery(){const q=new URLSearchParams(location.search);if(
 function gatherParams(){const N=parseIntFromInput(document.getElementById('net'));const netErr=document.getElementById('netError');if(N===null){netErr.textContent='数値を入力してください';return null;}netErr.textContent='';const rW=parseFloat(document.querySelector('input[name="withhold"]:checked').value);const two=document.getElementById('twoStage').checked;const tSel=document.getElementById('taxRate').value;let rC=null;if(tSel==='custom'){const c=parseIntFromInput(document.getElementById('customRate'));if(c===null){return null;}rC=c/100;}else{rC=parseFloat(tSel);}const base=document.querySelector('input[name="base"]:checked').value;const round=document.getElementById('taxRound').value;return{N,rW,rC,base,round,two};}
 function update(){const p=gatherParams();if(!p){clearOutputs();return;}const r=solveNetToInvoice(p);document.getElementById('fee').textContent=formatYen(r.fee);document.getElementById('tax').textContent=formatYen(r.tax);document.getElementById('gross').textContent=formatYen(r.gross);document.getElementById('withholding').textContent=formatYen(-r.W);document.getElementById('netOut').textContent=formatYen(p.N);document.getElementById('total').textContent=formatYen(r.total);history.replaceState(null,'',buildShareUrl(p));}
 function clearOutputs(){['fee','tax','gross','withholding','netOut','total'].forEach(id=>document.getElementById(id).textContent='-');}
-function init(){applyParamsFromQuery();update();document.getElementById('taxRate').addEventListener('change',e=>{document.getElementById('customRateLabel').style.display=e.target.value==='custom'?'block':'none';update();});document.querySelectorAll('#inputs input, #inputs select').forEach(el=>el.addEventListener('input',update));document.querySelectorAll('#inputs input[type="radio"], #inputs input[type="checkbox"], #inputs select').forEach(el=>el.addEventListener('change',update));document.querySelectorAll('button.copy').forEach(btn=>btn.addEventListener('click',()=>{const t=document.getElementById(btn.dataset.target).textContent;navigator.clipboard.writeText(t);}));document.getElementById('copyAll').addEventListener('click',()=>{const lines=[`報酬(税抜): ${document.getElementById('fee').textContent}`,`消費税: ${document.getElementById('tax').textContent}`,`小計(税込): ${document.getElementById('gross').textContent}`,`源泉所得税: ${document.getElementById('withholding').textContent}`,`振込額: ${document.getElementById('netOut').textContent}`,`総支出: ${document.getElementById('total').textContent}`].join('
-');navigator.clipboard.writeText(lines);});document.getElementById('shareLink').addEventListener('click',()=>{navigator.clipboard.writeText(location.href);});runTests();}
+function init(){
+  applyParamsFromQuery();
+  update();
+  document.getElementById('taxRate').addEventListener('change',e=>{
+    document.getElementById('customRateLabel').style.display=e.target.value==='custom'?'block':'none';
+    update();
+  });
+  document.querySelectorAll('#inputs input, #inputs select').forEach(el=>el.addEventListener('input',update));
+  document.querySelectorAll('#inputs input[type="radio"], #inputs input[type="checkbox"], #inputs select').forEach(el=>el.addEventListener('change',update));
+  document.querySelectorAll('button.copy').forEach(btn=>btn.addEventListener('click',()=>{
+    const t=document.getElementById(btn.dataset.target).textContent;
+    navigator.clipboard.writeText(t);
+  }));
+  document.getElementById('copyAll').addEventListener('click',()=>{
+    const lines=[
+      `報酬(税抜): ${document.getElementById('fee').textContent}`,
+      `消費税: ${document.getElementById('tax').textContent}`,
+      `小計(税込): ${document.getElementById('gross').textContent}`,
+      `源泉所得税: ${document.getElementById('withholding').textContent}`,
+      `振込額: ${document.getElementById('netOut').textContent}`,
+      `総支出: ${document.getElementById('total').textContent}`
+    ].join('\\n');
+    navigator.clipboard.writeText(lines);
+  });
+  document.getElementById('shareLink').addEventListener('click',()=>{
+    navigator.clipboard.writeText(location.href);
+  });
+  runTests();
+}
+
 function runTests(){const tests=[{id:'testA',params:{N:50000,rW:0.1021,rC:0.1,base:'fee',round:'down',two:false},exp:{fee:50105,tax:5010,gross:55115,W:5115,total:55115}},{id:'testB',params:{N:50000,rW:0.1021,rC:0.1,base:'gross',round:'down',two:false},exp:{fee:50623,tax:5062,gross:55685,W:5685,total:55685}},{id:'testC',params:{N:50000,rW:0.2042,rC:0.1,base:'fee',round:'down',two:false},exp:{fee:55816,tax:5581,gross:61397,W:11397,total:61397}}];tests.forEach(t=>{const r=solveNetToInvoice(t.params);const ok=r.fee===t.exp.fee&&r.tax===t.exp.tax&&r.gross===t.exp.gross&&r.W===t.exp.W;const el=document.getElementById(t.id);el.textContent=`${t.id} ${ok?'OK':'NG'}`;el.className=ok?'test-pass':'test-fail';});}
 document.addEventListener('DOMContentLoaded',init);
 </script>
