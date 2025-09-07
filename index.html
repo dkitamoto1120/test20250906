@@ -1,26 +1,150 @@
 <!DOCTYPE html>
-<html lang="ja">
+<html lang='ja'>
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Tetris</title>
-  <link rel="stylesheet" href="style.css" />
+<meta charset='UTF-8'>
+<meta name='viewport' content='width=device-width, initial-scale=1'>
+<title>振込額から逆算ツール</title>
+<style>
+:root{font-family:system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;line-height:1.4;}
+body{margin:0;padding:1rem;max-width:480px;margin-inline:auto;}
+label,button,select,input{font-size:1rem;min-height:44px;}
+fieldset{border:1px solid #ccc;margin-bottom:1rem;padding:0.5rem;}
+legend{font-weight:bold;}
+input[type='text'],select{width:100%;box-sizing:border-box;}
+.row{display:flex;align-items:center;justify-content:space-between;margin:0.25rem 0;padding:0.5rem;border:1px solid #ddd;border-radius:4px;}
+.row span.amount{font-weight:bold;}
+.copy{margin-left:0.5rem;}
+#outputs{margin-top:1rem;}
+#outputs .row{background:#f8f8f8;}
+button.copy,button#copyAll,button#shareLink{min-width:44px;}
+.note{font-size:0.8rem;margin-top:0.5rem;}
+footer{margin-top:2rem;font-size:0.7rem;color:#555;}
+.test-pass{color:green;}
+.test-fail{color:red;}
+.error{color:red;}
+@media (prefers-color-scheme: dark){
+ body{background:#121212;color:#eee;}
+ #outputs .row{background:#1e1e1e;border-color:#333;}
+ fieldset{border-color:#444;}
+}
+</style>
 </head>
 <body>
-  <h1>Tetris</h1>
-  <div class="game-wrapper">
-    <div class="game-container">
-      <canvas id="game" width="200" height="400"></canvas>
-      <div id="gameOver">Game Over</div>
-    </div>
-    <div class="score">Score: <span id="score">0</span></div>
-  </div>
-  <div class="controls">
-    <button id="btnLeft">←</button>
-    <button id="btnRight">→</button>
-    <button id="btnRotate">⟳</button>
-    <button id="btnDrop">⏬</button>
-  </div>
-  <script src="tetris.js"></script>
+<h1>振込額から逆算</h1>
+<section id='inputs'>
+  <label>受取希望額 (円)
+    <input id='net' type='text' inputmode='numeric' pattern='\d*' value='50000'>
+  </label>
+  <div id='netError' class='error' aria-live='polite'></div>
+  <fieldset>
+    <legend>源泉区分</legend>
+    <label><input type='radio' name='withhold' value='0'>なし</label>
+    <label><input type='radio' name='withhold' value='0.1021' checked>居住者10.21%</label>
+    <label><input type='radio' name='withhold' value='0.2042'>非居住者20.42%</label>
+  </fieldset>
+  <label><input type='checkbox' id='twoStage'>二段階税率(100万円超20.42%)</label>
+  <label>消費税率
+    <select id='taxRate'>
+      <option value='0'>0%</option>
+      <option value='0.08'>8%</option>
+      <option value='0.1' selected>10%</option>
+      <option value='custom'>カスタム</option>
+    </select>
+  </label>
+  <label id='customRateLabel' style='display:none'>カスタム税率(%)
+    <input id='customRate' type='text' inputmode='numeric' pattern='\d*' value='10'>
+  </label>
+  <fieldset>
+    <legend>源泉の課税ベース</legend>
+    <label><input type='radio' name='base' value='fee' checked>税抜ベース</label>
+    <label><input type='radio' name='base' value='gross'>税込ベース</label>
+  </fieldset>
+  <label>消費税の端数処理
+    <select id='taxRound'>
+      <option value='down' selected>切捨て</option>
+      <option value='nearest'>四捨五入</option>
+      <option value='up'>切上げ</option>
+    </select>
+  </label>
+</section>
+<section id='outputs'>
+  <div class='row'><span>報酬(税抜)</span><span id='fee' class='amount'>-</span><button class='copy' data-target='fee' aria-label='報酬をコピー'>📋</button></div>
+  <div class='row'><span>消費税</span><span id='tax' class='amount'>-</span><button class='copy' data-target='tax' aria-label='消費税をコピー'>📋</button></div>
+  <div class='row'><span>小計(税込)</span><span id='gross' class='amount'>-</span><button class='copy' data-target='gross' aria-label='小計をコピー'>📋</button></div>
+  <div class='row'><span>源泉所得税(▲)</span><span id='withholding' class='amount'>-</span><button class='copy' data-target='withholding' aria-label='源泉税をコピー'>📋</button></div>
+  <div class='row'><span>振込額</span><span id='netOut' class='amount'>-</span><button class='copy' data-target='netOut' aria-label='振込額をコピー'>📋</button></div>
+  <div class='row'><span>総支出(参考)</span><span id='total' class='amount'>-</span><button class='copy' data-target='total' aria-label='総支出をコピー'>📋</button></div>
+  <button id='copyAll'>明細をコピー</button>
+  <button id='shareLink'>共有URLをコピー</button>
+  <div class='note'>源泉税は1円未満切捨て。税込／税抜ベースは請求書の書き方に依存</div>
+</section>
+<section id='tests'>
+  <h2>検証</h2>
+  <div id='testA'></div>
+  <div id='testB'></div>
+  <div id='testC'></div>
+</section>
+<footer>
+<p>本ツールの計算ロジックの根拠:</p>
+<ul>
+<li>消費税を明確区分すれば源泉対象は税抜、区分しない場合は税込が原則</li>
+<li>源泉10.21%(居住者)、非居住者20.42%、源泉税は1円未満切捨て</li>
+<li>原稿料・講演料等は100万円超部分20.42%(該当時のみ)</li>
+</ul>
+<p>個別の事実関係で結論が異なる場合あり。最終判断は税務顧問へ。</p>
+</footer>
+<script>
+// 国税庁: https://www.nta.go.jp/taxes/shiraberu/taxanswer/shohi/6929.htm
+// 国税庁: https://www.nta.go.jp/taxes/shiraberu/taxanswer/gensen/2507.htm
+// 国税庁: https://www.nta.go.jp/taxes/shiraberu/taxanswer/gensen/2884.htm
+// 国税庁: https://www.nta.go.jp/taxes/shiraberu/taxanswer/gensen/2792_qa.htm
+const fmt=new Intl.NumberFormat('ja-JP',{style:'currency',currency:'JPY'});
+function formatYen(n){return fmt.format(n);}
+function toHalf(str){return str.replace(/[０-９]/g,s=>String.fromCharCode(s.charCodeAt(0)-0xFEE0));}
+function parseIntFromInput(el){const v=toHalf(el.value.trim());const n=parseInt(v,10);if(isNaN(n)||n<0){return null;}return n;}
+function roundTax(v,mode){if(mode==='down')return Math.floor(v);if(mode==='up')return Math.ceil(v);return Math.round(v);}
+function computeWithholding(base,rate,two){if(rate===0)return 0;if(two){const p1=Math.floor(Math.min(base,1_000_000)*0.1021);const p2=Math.floor(Math.max(base-1_000_000,0)*0.2042);return p1+p2;}return Math.floor(base*rate);}
+function netFromFee(fee,params){const tax=roundTax(fee*params.rC,params.round);const gross=fee+tax;const W=computeWithholding(params.base==='fee'?fee:gross,params.rW,params.two);const net=gross-W;return{fee,tax,gross,W,net};}
+function netFromGross(gross,params){const W=computeWithholding(gross,params.rW,params.two);const net=gross-W;return{gross,W,net};}
+function solveFee(N,params){let lo=0,hi=1_000_000_000,res=null;while(lo<=hi){const mid=Math.floor((lo+hi)/2);const r=netFromFee(mid,params);if(r.net===N){res=r;break;}if(r.net>N)hi=mid-1;else lo=mid+1;}if(!res){const c1=netFromFee(lo,params);const c2=netFromFee(hi,params);res=Math.abs(c1.net-N)<Math.abs(c2.net-N)?c1:c2;}for(let d=-1;d<=1;d++){const c=netFromFee(res.fee+d,params);if(c.net===N){res=c;}}res.total=res.gross;return res;}
+function solveGross(N,params){let lo=0,hi=1_000_000_000,res=null;while(lo<=hi){const mid=Math.floor((lo+hi)/2);const r=netFromGross(mid,params);if(r.net===N){res=r;break;}if(r.net>N)hi=mid-1;else lo=mid+1;}if(!res){const c1=netFromGross(lo,params);const c2=netFromGross(hi,params);res=Math.abs(c1.net-N)<Math.abs(c2.net-N)?c1:c2;}for(let d=-1;d<=1;d++){const c=netFromGross(res.gross+d,params);if(c.net===N){res=c;}}const taxBase=params.rC===0?0:res.gross*params.rC/(1+params.rC);const tax=roundTax(taxBase,params.round);const fee=res.gross-tax;res.tax=tax;res.fee=fee;res.total=res.gross;return res;}
+function solveNetToInvoice(p){return p.base==='fee'?solveFee(p.N,p):solveGross(p.N,p);}
+function buildShareUrl(p){const q=new URLSearchParams();q.set('n',p.N);q.set('w',p.rW);q.set('two',p.two?1:0);q.set('c',p.rC);q.set('base',p.base);q.set('round',p.round);return location.pathname+'?'+q.toString();}
+function applyParamsFromQuery(){const q=new URLSearchParams(location.search);if(q.has('n'))document.getElementById('net').value=q.get('n');if(q.has('w')){const v=q.get('w');const r=document.querySelector(`input[name="withhold"][value="${v}"]`);if(r)r.checked=true;}if(q.has('two'))document.getElementById('twoStage').checked=q.get('two')==='1';if(q.has('base')){const b=document.querySelector(`input[name="base"][value="${q.get('base')}"]`);if(b)b.checked=true;}if(q.has('round'))document.getElementById('taxRound').value=q.get('round');if(q.has('c')){const c=parseFloat(q.get('c'));const sel=document.getElementById('taxRate');if(c===0||c===0.08||c===0.1){sel.value=c.toString();}else{sel.value='custom';document.getElementById('customRateLabel').style.display='block';document.getElementById('customRate').value=(c*100).toString();}}}
+function gatherParams(){const N=parseIntFromInput(document.getElementById('net'));const netErr=document.getElementById('netError');if(N===null){netErr.textContent='数値を入力してください';return null;}netErr.textContent='';const rW=parseFloat(document.querySelector('input[name="withhold"]:checked').value);const two=document.getElementById('twoStage').checked;const tSel=document.getElementById('taxRate').value;let rC=null;if(tSel==='custom'){const c=parseIntFromInput(document.getElementById('customRate'));if(c===null){return null;}rC=c/100;}else{rC=parseFloat(tSel);}const base=document.querySelector('input[name="base"]:checked').value;const round=document.getElementById('taxRound').value;return{N,rW,rC,base,round,two};}
+function update(){const p=gatherParams();if(!p){clearOutputs();return;}const r=solveNetToInvoice(p);document.getElementById('fee').textContent=formatYen(r.fee);document.getElementById('tax').textContent=formatYen(r.tax);document.getElementById('gross').textContent=formatYen(r.gross);document.getElementById('withholding').textContent=formatYen(-r.W);document.getElementById('netOut').textContent=formatYen(p.N);document.getElementById('total').textContent=formatYen(r.total);history.replaceState(null,'',buildShareUrl(p));}
+function clearOutputs(){['fee','tax','gross','withholding','netOut','total'].forEach(id=>document.getElementById(id).textContent='-');}
+function init(){
+  applyParamsFromQuery();
+  update();
+  document.getElementById('taxRate').addEventListener('change',e=>{
+    document.getElementById('customRateLabel').style.display=e.target.value==='custom'?'block':'none';
+    update();
+  });
+  document.querySelectorAll('#inputs input, #inputs select').forEach(el=>el.addEventListener('input',update));
+  document.querySelectorAll('#inputs input[type="radio"], #inputs input[type="checkbox"], #inputs select').forEach(el=>el.addEventListener('change',update));
+  document.querySelectorAll('button.copy').forEach(btn=>btn.addEventListener('click',()=>{
+    const t=document.getElementById(btn.dataset.target).textContent;
+    navigator.clipboard.writeText(t);
+  }));
+  document.getElementById('copyAll').addEventListener('click',()=>{
+    const lines=[
+      `報酬(税抜): ${document.getElementById('fee').textContent}`,
+      `消費税: ${document.getElementById('tax').textContent}`,
+      `小計(税込): ${document.getElementById('gross').textContent}`,
+      `源泉所得税: ${document.getElementById('withholding').textContent}`,
+      `振込額: ${document.getElementById('netOut').textContent}`,
+      `総支出: ${document.getElementById('total').textContent}`
+    ].join('\\n');
+    navigator.clipboard.writeText(lines);
+  });
+  document.getElementById('shareLink').addEventListener('click',()=>{
+    navigator.clipboard.writeText(location.href);
+  });
+  runTests();
+}
+function runTests(){const tests=[{id:'testA',params:{N:50000,rW:0.1021,rC:0.1,base:'fee',round:'down',two:false},exp:{fee:50105,tax:5010,gross:55115,W:5115,total:55115}},{id:'testB',params:{N:50000,rW:0.1021,rC:0.1,base:'gross',round:'down',two:false},exp:{fee:50623,tax:5062,gross:55685,W:5685,total:55685}},{id:'testC',params:{N:50000,rW:0.2042,rC:0.1,base:'fee',round:'down',two:false},exp:{fee:55816,tax:5581,gross:61397,W:11397,total:61397}}];tests.forEach(t=>{const r=solveNetToInvoice(t.params);const ok=r.fee===t.exp.fee&&r.tax===t.exp.tax&&r.gross===t.exp.gross&&r.W===t.exp.W;const el=document.getElementById(t.id);el.textContent=`${t.id} ${ok?'OK':'NG'}`;el.className=ok?'test-pass':'test-fail';});}
+document.addEventListener('DOMContentLoaded',init);
+</script>
 </body>
 </html>
