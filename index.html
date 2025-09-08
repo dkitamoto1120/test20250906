@@ -32,9 +32,22 @@ footer{margin-top:2rem;font-size:0.7rem;color:#555;}
 <body>
 <h1>振込額から逆算</h1>
 <section id='inputs'>
-  <label>受取希望額 (円)
-    <input id='net' type='text' inputmode='numeric' pattern='\d*' value='50000'>
+  <label>Candex fee (%)
+    <input id='candexFee' type='number' step='0.01' value='3'>
   </label>
+  <label><input type='checkbox' id='exemptFlag'>免税業者なら2%にセット</label>
+  <fieldset>
+    <legend>手数料負担者</legend>
+    <label><input type='radio' name='feePayer' value='vendor' checked>Vendor負担</label>
+    <label><input type='radio' name='feePayer' value='buyer'>Buyer負担</label>
+  </fieldset>
+  <label>You Paid
+    <input id='youPaid' type='text' inputmode='numeric' pattern='\d*'>
+  </label>
+  <label>Vendor Gets
+    <input id='vendorGets' type='text' inputmode='numeric' pattern='\d*'>
+  </label>
+  <input id='net' type='hidden'>
   <div id='netError' class='error' aria-live='polite'></div>
   <fieldset>
     <legend>源泉区分</legend>
@@ -102,6 +115,10 @@ const fmt=new Intl.NumberFormat('ja-JP',{style:'currency',currency:'JPY'});
 function formatYen(n){return fmt.format(n);}
 function toHalf(str){return str.replace(/[０-９]/g,s=>String.fromCharCode(s.charCodeAt(0)-0xFEE0));}
 function parseIntFromInput(el){const v=toHalf(el.value.trim());const n=parseInt(v,10);if(isNaN(n)||n<0){return null;}return n;}
+let lastEdited='vendor';
+let defaultFee=3;
+function debounce(fn,delay=300){let t;return(...args)=>{clearTimeout(t);t=setTimeout(()=>fn(...args),delay);};}
+function recalcFrom(src){const you=document.getElementById('youPaid');const vendor=document.getElementById('vendorGets');const net=document.getElementById('net');const round=document.getElementById('taxRound').value;const feeRate=parseFloat(document.getElementById('candexFee').value)/100;const payer=document.querySelector('input[name="feePayer"]:checked').value;if(src==='you'){const y=parseIntFromInput(you);if(y!==null){let v=payer==='vendor'?roundTax(y*(1-feeRate),round):roundTax(y,round);vendor.value=v;net.value=v;}else{vendor.value='';net.value='';}}else if(src==='vendor'){const v=parseIntFromInput(vendor);if(v!==null){let y=payer==='vendor'?roundTax(v/(1-feeRate),round):roundTax(v*(1+feeRate),round);you.value=y;net.value=v;}else{you.value='';net.value='';}}update();}
 function roundTax(v,mode){if(mode==='down')return Math.floor(v);if(mode==='up')return Math.ceil(v);return Math.round(v);}
 function computeWithholding(base,rate,two){if(rate===0)return 0;if(two){const p1=Math.floor(Math.min(base,1_000_000)*0.1021);const p2=Math.floor(Math.max(base-1_000_000,0)*0.2042);return p1+p2;}return Math.floor(base*rate);}
 function netFromFee(fee,params){const tax=roundTax(fee*params.rC,params.round);const gross=fee+tax;const W=computeWithholding(params.base==='fee'?fee:gross,params.rW,params.two);const net=gross-W;return{fee,tax,gross,W,net};}
@@ -109,20 +126,30 @@ function netFromGross(gross,params){const W=computeWithholding(gross,params.rW,p
 function solveFee(N,params){let lo=0,hi=1_000_000_000,res=null;while(lo<=hi){const mid=Math.floor((lo+hi)/2);const r=netFromFee(mid,params);if(r.net===N){res=r;break;}if(r.net>N)hi=mid-1;else lo=mid+1;}if(!res){const c1=netFromFee(lo,params);const c2=netFromFee(hi,params);res=Math.abs(c1.net-N)<Math.abs(c2.net-N)?c1:c2;}for(let d=-1;d<=1;d++){const c=netFromFee(res.fee+d,params);if(c.net===N){res=c;}}res.total=res.gross;return res;}
 function solveGross(N,params){let lo=0,hi=1_000_000_000,res=null;while(lo<=hi){const mid=Math.floor((lo+hi)/2);const r=netFromGross(mid,params);if(r.net===N){res=r;break;}if(r.net>N)hi=mid-1;else lo=mid+1;}if(!res){const c1=netFromGross(lo,params);const c2=netFromGross(hi,params);res=Math.abs(c1.net-N)<Math.abs(c2.net-N)?c1:c2;}for(let d=-1;d<=1;d++){const c=netFromGross(res.gross+d,params);if(c.net===N){res=c;}}const taxBase=params.rC===0?0:res.gross*params.rC/(1+params.rC);const tax=roundTax(taxBase,params.round);const fee=res.gross-tax;res.tax=tax;res.fee=fee;res.total=res.gross;return res;}
 function solveNetToInvoice(p){return p.base==='fee'?solveFee(p.N,p):solveGross(p.N,p);}
-function buildShareUrl(p){const q=new URLSearchParams();q.set('n',p.N);q.set('w',p.rW);q.set('two',p.two?1:0);q.set('c',p.rC);q.set('base',p.base);q.set('round',p.round);return location.pathname+'?'+q.toString();}
-function applyParamsFromQuery(){const q=new URLSearchParams(location.search);if(q.has('n'))document.getElementById('net').value=q.get('n');if(q.has('w')){const v=q.get('w');const r=document.querySelector(`input[name="withhold"][value="${v}"]`);if(r)r.checked=true;}if(q.has('two'))document.getElementById('twoStage').checked=q.get('two')==='1';if(q.has('base')){const b=document.querySelector(`input[name="base"][value="${q.get('base')}"]`);if(b)b.checked=true;}if(q.has('round'))document.getElementById('taxRound').value=q.get('round');if(q.has('c')){const c=parseFloat(q.get('c'));const sel=document.getElementById('taxRate');if(c===0||c===0.08||c===0.1){sel.value=c.toString();}else{sel.value='custom';document.getElementById('customRateLabel').style.display='block';document.getElementById('customRate').value=(c*100).toString();}}}
+function buildShareUrl(p){const q=new URLSearchParams();q.set('n',p.N);q.set('w',p.rW);q.set('two',p.two?1:0);q.set('c',p.rC);q.set('base',p.base);q.set('round',p.round);q.set('f',document.getElementById('candexFee').value);q.set('exempt',document.getElementById('exemptFlag').checked?1:0);q.set('fpayer',document.querySelector('input[name="feePayer"]:checked').value);return location.pathname+'?'+q.toString();}
+function applyParamsFromQuery(){const q=new URLSearchParams(location.search);if(q.has('f')){const fv=parseFloat(q.get('f'));if(!isNaN(fv)){defaultFee=fv<=1?fv*100:fv;}}document.getElementById('candexFee').value=defaultFee;if(q.get('exempt')==='1'){document.getElementById('exemptFlag').checked=true;document.getElementById('candexFee').value='2';}if(q.has('fpayer')){const fp=document.querySelector(`input[name="feePayer"][value="${q.get('fpayer')}"]`);if(fp)fp.checked=true;}if(q.has('n')){document.getElementById('vendorGets').value=q.get('n');document.getElementById('net').value=q.get('n');}if(q.has('w')){const v=q.get('w');const r=document.querySelector(`input[name="withhold"][value="${v}"]`);if(r)r.checked=true;}if(q.has('two'))document.getElementById('twoStage').checked=q.get('two')==='1';if(q.has('base')){const b=document.querySelector(`input[name="base"][value="${q.get('base')}"]`);if(b)b.checked=true;}if(q.has('round'))document.getElementById('taxRound').value=q.get('round');if(q.has('c')){const c=parseFloat(q.get('c'));const sel=document.getElementById('taxRate');if(c===0||c===0.08||c===0.1){sel.value=c.toString();}else{sel.value='custom';document.getElementById('customRateLabel').style.display='block';document.getElementById('customRate').value=(c*100).toString();}}}
 function gatherParams(){const N=parseIntFromInput(document.getElementById('net'));const netErr=document.getElementById('netError');if(N===null){netErr.textContent='数値を入力してください';return null;}netErr.textContent='';const rW=parseFloat(document.querySelector('input[name="withhold"]:checked').value);const two=document.getElementById('twoStage').checked;const tSel=document.getElementById('taxRate').value;let rC=null;if(tSel==='custom'){const c=parseIntFromInput(document.getElementById('customRate'));if(c===null){return null;}rC=c/100;}else{rC=parseFloat(tSel);}const base=document.querySelector('input[name="base"]:checked').value;const round=document.getElementById('taxRound').value;return{N,rW,rC,base,round,two};}
-function update(){const p=gatherParams();if(!p){clearOutputs();return;}const r=solveNetToInvoice(p);document.getElementById('fee').textContent=formatYen(r.fee);document.getElementById('tax').textContent=formatYen(r.tax);document.getElementById('gross').textContent=formatYen(r.gross);document.getElementById('withholding').textContent=formatYen(-r.W);document.getElementById('netOut').textContent=formatYen(p.N);document.getElementById('total').textContent=formatYen(r.total);history.replaceState(null,'',buildShareUrl(p));}
+function update(){const p=gatherParams();if(!p){clearOutputs();return;}const r=netFromFee(p.N,p);r.total=r.gross;document.getElementById('fee').textContent=formatYen(r.fee);document.getElementById('tax').textContent=formatYen(r.tax);document.getElementById('gross').textContent=formatYen(r.gross);document.getElementById('withholding').textContent=formatYen(-r.W);document.getElementById('netOut').textContent=formatYen(r.net);document.getElementById('total').textContent=formatYen(r.total);history.replaceState(null,'',buildShareUrl(p));}
 function clearOutputs(){['fee','tax','gross','withholding','netOut','total'].forEach(id=>document.getElementById(id).textContent='-');}
 function init(){
   applyParamsFromQuery();
-  update();
+  recalcFrom('vendor');
   document.getElementById('taxRate').addEventListener('change',e=>{
     document.getElementById('customRateLabel').style.display=e.target.value==='custom'?'block':'none';
     update();
   });
-  document.querySelectorAll('#inputs input, #inputs select').forEach(el=>el.addEventListener('input',update));
-  document.querySelectorAll('#inputs input[type="radio"], #inputs input[type="checkbox"], #inputs select').forEach(el=>el.addEventListener('change',update));
+  document.querySelectorAll('#inputs input:not(#youPaid):not(#vendorGets):not(#candexFee):not(#exemptFlag):not([name="feePayer"]), #inputs select').forEach(el=>el.addEventListener('input',update));
+  document.querySelectorAll('#inputs input[type="radio"]:not([name="feePayer"]), #inputs input[type="checkbox"]:not(#exemptFlag), #inputs select').forEach(el=>el.addEventListener('change',update));
+  const you=document.getElementById('youPaid');
+  const vendor=document.getElementById('vendorGets');
+  const debYou=debounce(()=>recalcFrom('you'),300);
+  const debVendor=debounce(()=>recalcFrom('vendor'),300);
+  you.addEventListener('input',()=>{lastEdited='you';debYou();});
+  vendor.addEventListener('input',()=>{lastEdited='vendor';debVendor();});
+  document.getElementById('candexFee').addEventListener('input',()=>recalcFrom(lastEdited));
+  document.getElementById('exemptFlag').addEventListener('change',e=>{document.getElementById('candexFee').value=e.target.checked?'2':String(defaultFee);recalcFrom(lastEdited);});
+  document.querySelectorAll('input[name="feePayer"]').forEach(r=>r.addEventListener('change',()=>recalcFrom(lastEdited)));
+  document.getElementById('taxRound').addEventListener('change',()=>recalcFrom(lastEdited));
   document.querySelectorAll('button.copy').forEach(btn=>btn.addEventListener('click',()=>{
     const t=document.getElementById(btn.dataset.target).textContent;
     navigator.clipboard.writeText(t);
@@ -144,7 +171,7 @@ function init(){
   runTests();
 }
 
-function runTests(){const tests=[{id:'testA',params:{N:50000,rW:0.1021,rC:0.1,base:'fee',round:'down',two:false},exp:{fee:50105,tax:5010,gross:55115,W:5115,total:55115}},{id:'testB',params:{N:50000,rW:0.1021,rC:0.1,base:'gross',round:'down',two:false},exp:{fee:50623,tax:5062,gross:55685,W:5685,total:55685}},{id:'testC',params:{N:50000,rW:0.2042,rC:0.1,base:'fee',round:'down',two:false},exp:{fee:55816,tax:5581,gross:61397,W:11397,total:61397}}];tests.forEach(t=>{const r=solveNetToInvoice(t.params);const ok=r.fee===t.exp.fee&&r.tax===t.exp.tax&&r.gross===t.exp.gross&&r.W===t.exp.W;const el=document.getElementById(t.id);el.textContent=`${t.id} ${ok?'OK':'NG'}`;el.className=ok?'test-pass':'test-fail';});}
+function runTests(){const tests=[{id:'testA',you:100000,feeRate:0.03,payer:'vendor',expVendor:97000},{id:'testB',vendor:100000,feeRate:0.03,payer:'buyer',expYou:103000}];tests.forEach(t=>{let ok=false;if('you' in t){const v=roundTax(t.you*(1-t.feeRate),'down');ok=v===t.expVendor;}else{const y=roundTax(t.vendor*(1+t.feeRate),'down');ok=y===t.expYou;}const el=document.getElementById(t.id);el.textContent=`${t.id} ${ok?'OK':'NG'}`;el.className=ok?'test-pass':'test-fail';});}
 document.addEventListener('DOMContentLoaded',init);
 </script>
 </body>
